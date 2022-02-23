@@ -157,12 +157,14 @@ int run_vm(struct vm *vm, struct vcpu *vcpu, size_t sz)
 {
 	struct kvm_regs regs;
 	uint64_t memval = 0;
+	uint32_t counter = 0;
 
 	for (;;) {
 		if (ioctl(vcpu->fd, KVM_RUN, 0) < 0) {
 			perror("KVM_RUN");
 			exit(1);
 		}
+		counter++;
 
 		switch (vcpu->kvm_run->exit_reason) {
 		case KVM_EXIT_HLT:
@@ -173,6 +175,32 @@ int run_vm(struct vm *vm, struct vcpu *vcpu, size_t sz)
 			    && vcpu->kvm_run->io.port == 0xE9) {
 				char *p = (char *)vcpu->kvm_run;
 				fwrite(p + vcpu->kvm_run->io.data_offset,
+				       vcpu->kvm_run->io.size, 1, stdout);
+				fflush(stdout);
+				continue;
+			}
+			if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT
+			    && vcpu->kvm_run->io.port == 0xE2) {
+				char *p = (char *)vcpu->kvm_run;
+				char *q;
+				
+				q = (char*)(uintptr_t)(*(p + vcpu->kvm_run->io.data_offset)+vm->mem);
+				fwrite(q, strlen(q), 1, stdout);
+				fflush(stdout);
+				continue;
+			}
+			if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_IN 
+			&& vcpu->kvm_run->io.port == 0xE0) {
+				char *p =  (char*)vcpu->kvm_run;
+				uint32_t *p1 = (uint32_t*)(p + vcpu->kvm_run->io.data_offset);
+				*p1 = counter;
+				continue;
+			}
+			if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT
+			    && vcpu->kvm_run->io.port == 0xE1) {
+				char *p = (char*)vcpu->kvm_run;
+				sprintf(p+vcpu->kvm_run->io.data_offset, "%d\n", counter);
+				fwrite((p + vcpu->kvm_run->io.data_offset),
 				       vcpu->kvm_run->io.size, 1, stdout);
 				fflush(stdout);
 				continue;
